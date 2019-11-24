@@ -3,26 +3,28 @@
 Description:
   Процедуры работают только с аргументами и глобальными функциями (переменными).
   Выходные объекты должны быть аллоцированы до вызова функции.
+  Все данные в data  выровнены по u16.
+  Все данные в stack выровнены по u64.
 
 
 
 Registers: u64
-  xxxx RIP  PC         ;
-  xxxx RSP  SP         ;
-  xxxx RFP  FP         ;
-  xxxx RF   FLAGS
-  xxxx RT   TMP
-  xxxx RA   address
-  xxxx RES  res
-  xxxx RA1  arg1
-  xxxx RA2  arg2
-  xxxx RA3  arg3
-  xxxx RA4  arg4
-  xxxx RA5  arg5
-  xxxx RA6  args
-  xxxx RT1
-  xxxx RT2
-  xxxx RT3
+  xxxx RIP   PC         ;
+  xxxx RFP   FP         ;
+  xxxx RSP   SP         ;
+  xxxx RF    FLAGS
+  xxxx RT    TMP
+  xxxx RC    CONST
+  xxxx RA    args
+  xxxx R9
+  xxxx R8
+  xxxx R7
+  xxxx R6
+  xxxx R5
+  xxxx R4
+  xxxx R3
+  xxxx R2
+  xxxx R1
 
 FLAGS:
   0000 0001   sign
@@ -36,42 +38,40 @@ FLAGS:
 
 
 xxxx xxxx xxxx xxxx
-
-xxxx xxxx xxxx xxxx xxxx xxxx xxxx xxxx
-   _    _  cmd    d    v    v    v    v   set(d,a):     Rd = (v v v v)
-   _    _    _  cmd    d    _    a    b   or (d,a,b):   Rd = Ra | Rb
-   _    _    _  cmd    d    _    a    b   and(d,a,b):   Rd = Ra & Rb
-   _    _    _  cmd    d    _    a    b   xor(d,a,b):   Rd = Ra ^ Rb
-   _    _    _  cmd    d    _    a    b   add(d,a,b):   Rd = Ra + Rb   + c
-   _    _    _  cmd    d    _    a    b   sub(d,a,b):   Rd = Ra - Rb   - c
-   _    _    _  cmd    d    _    a    b   mult(d,a,b):  (Rt, Rd) = Ra * Rb
-   _    _    _  cmd    d    _    a    b   div(d,a,b):   Rd = Ra / Rb; Rt = Ra % Rb
-                cmd    d    _    _    a   branch(d,a):  RIP = Rd if Ra
-                cmd    d    _    _    a   not(d,a):     Rd = ~Ra
-                cmd    d    _    _    a   lshift(d,a):  Rd = Rd << Ra
-                cmd    d    _    _    a   rshift(d,a):  Rd = Rd >> Ra
-                cmd    d    _    _    a   load(d,a):    Rd = M[Ra]
-                cmd    d    _    _    a   save(d,a):    M[Ra] = Rd
-                cmd    d    _    _    a   mov(d,a):     Rd = Ra
+ cmd    d    v    v   SET(d,a):     Rd = (0 0 0 0 0 0 0 v)
+ cmd    d    a    b   OR (d,a,b):   Rd = Ra | Rb
+ cmd    d    a    b   AND(d,a,b):   Rd = Ra & Rb
+ cmd    d    a    b   XOR(d,a,b):   Rd = Ra ^ Rb
+ cmd    d    a    b   ADD(d,a,b):   Rd = Ra + Rb   + c
+ cmd    d    a    b   SUB(d,a,b):   Rd = Ra - Rb   - c
+ cmd    d    a    b   MULT(d,a,b):  (Rt, Rd) = Ra * Rb
+ cmd    d    a    b   DIV(d,a,b):   Rd = Ra / Rb; Rt = Ra % Rb
+ cmd    d    _    a   BR(d,a):      RIP = Rd if Ra
+ cmd    d    _    a   NOT(d,a):     Rd = ~Ra
+ cmd    d    _    a   LSH(d,a):     Rd = Rd << Ra
+ cmd    d    _    a   RSH(d,a):     Rd = Rd >> Ra
+ cmd    d    _    a   LOAD(d,a):    Rd = M[Ra]              // TODO width
+ cmd    d    _    a   SAVE(d,a):    M[Ra] = Rd              // TODO width
+ cmd    d    _    a   MOV(d,a):     Rd = Ra
 
 
-INC1    Ra:      set(Rt, 1); INC(Ra, Rt);
-DEC1    Ra:      set(Rt, 1); DEC(Ra, Rt);
-SETF    Ra:      or(Rf, Rf, Ra);
-CLRF    Ra:      not(Rt, Rf); or(Rt, Rt, Ra); not(Rf, Rt);
-NEG     Ra:      set(Rt, 0); sub(Ra, Rt, Ra);
-PLOAD   Ra Rb:   add(Rt, Rb, SP); load(Ra, Rt);
-PSAVE   Ra Rb:   add(Rt, Rb, SP); save(Rt, Ra);
-INC     Ra Rb:   add(Ra, Ra, Rb);
-DEC     Ra Rb:   sub(Ra, Ra, Rb);
+INC1     Ra:      set(Rt, 1); INC(Ra, Rt);
+DEC1     Ra:      set(Rt, 1); DEC(Ra, Rt);
+SETF     Ra:      or(Rf, Rf, Ra);
+CLRF     Ra:      not(Rt, Rf); or(Rt, Rt, Ra); not(Rf, Rt);
+NEG      Ra:      set(Rt, 0); sub(Ra, Rt, Ra);
+PLOADI   Ra  I:   set(Rt, I); add(Rt, Rt, SP); load(Ra, Rt);
+PLOAD    Ra Rb:   add(Rt, Rb, SP); load(Ra, Rt);
+PSAVE    Ra Rb:   add(Rt, Rb, SP); save(Rt, Ra);
+INC      Ra Rb:   add(Ra, Ra, Rb);
+DEC      Ra Rb:   sub(Ra, Ra, Rb);
 
 CALL(Ra):   ...
 RET:        ...
 
-FUNCTION(name)   functions[name] = position
-LABEL(name)      labels[name] = position
-CALL(Ra, name)   set(Ra, functions[name]); CALL(Ra);
-BR(Ra, name)     branch(Ra, labels[name])
+FUNCTION(name)      functions[name] = position
+LABEL(name)         labels[name] = position
+ADDRESS(Ra, name)   set(Ra, functions[name] ? functions[name] : labels[name])
 
 
 
@@ -81,11 +81,11 @@ segments:
 
 segment dynsym:
   u64:size
-  u64:pointer ... u64:pointer
-  str:name    ... str:name
+  [u64:pointer]
+  [str:name]
 
 segment text:
-  u64:instruction ... u64:instruction
+  [u64:instruction]
 
 
 
