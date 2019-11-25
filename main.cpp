@@ -186,98 +186,62 @@ namespace risc_n {
 
     using instructions_t = std::vector<instruction_t>;
 
-    enum OPCODE1 : uint8_t {
-      SET  =  0,
-      AND  =  1,
-      OR   =  2,
-      XOR  =  3,
-      ADD  =  4,
-      SUB  =  5,
-      MULT =  6,
-      DIV  =  7,
-      LSH  =  8,
-      RSH  =  9,
-      OTH1 = 15,
+    struct opcode_t {
+      uint8_t     offset;
+      uint8_t     index;
+      std::string name;
     };
 
-    enum OPCODE2 : uint8_t {
-      BR   =  0,
-      NOT  =  1,
-      LOAD =  2,
-      SAVE =  3,
-      MOV  =  4,
-      OTH2 = 15,
+    static inline std::vector<opcode_t> opcodes = {
+      {  0,  0, "SET"  },
+      {  0,  1, "AND"  },
+      {  0,  2, "OR"   },
+      {  0,  3, "XOR"  },
+      {  0,  4, "ADD"  },
+      {  0,  5, "SUB"  },
+      {  0,  6, "MULT" },
+      {  0,  7, "DIV"  },
+      {  0,  8, "LSH"  },
+      {  0,  9, "RSH"  },
+      // ...
+      {  0, 15, "OTH0" },
+      {  1,  0, "BR"   },
+      {  1,  1, "NOT"  },
+      {  1,  2, "LOAD" },
+      {  1,  3, "SAVE" },
+      {  1,  4, "MOV"  },
+      // ...
+      {  1, 15, "OTH1" },
+      {  2,  0, "CALL" },
+      // ...
+      {  2, 15, "OTH2" },
+      {  3,  0, "RET"  },
+      // ...
     };
 
-    enum OPCODE3 : uint8_t {
-      CALL =  0,
-      OTH3 = 15,
+    struct reg_t {
+      uint8_t     index;
+      std::string name;
     };
 
-    enum OPCODE4 : uint8_t {
-      RET  =  0,
-      OTH4 = 15,
+    static inline std::vector<reg_t> regs = {
+      {  0,  "RI"  },   // instruction pointer
+      {  1,  "RB"  },   // base pointer
+      {  2,  "RS"  },   // stack pointer
+      {  3,  "RF"  },   // flags
+      {  4,  "RT"  },   // tmp
+      {  5,  "RC"  },   // const
+      {  6,  "RA"  },   // args
+      {  7,  "R1"  },
+      {  8,  "R2"  },
+      {  9,  "R3"  },
+      {  10, "R4"  },
+      {  11, "R5"  },
+      {  12, "R6"  },
+      {  13, "R7"  },
+      {  14, "R8"  },
+      {  15, "R9"  },
     };
-
-    static inline std::map<std::string, uint8_t> op1 = {
-      { "SET",  SET },
-      { "AND",  AND },
-      { "OR",   OR  },
-      { "XOR",  XOR },
-      { "ADD",  ADD },
-      { "SUB",  SUB },
-      { "MULT", MULT },
-      { "DIV",  DIV },
-      { "LSH",  LSH },
-      { "RSH",  RSH },
-    };
-
-    static inline std::map<std::string, uint8_t> op2 = {
-      { "BR",   BR },
-      { "NOT",  NOT },
-      { "LOAD", LOAD },
-      { "SAVE", SAVE },
-      { "MOV",  MOV },
-    };
-
-    enum REGS : uint8_t {
-      RI =  0, // instruction pointer
-      RB =  1, // base pointer
-      RS =  2, // stack pointer
-      RF =  3, // flags
-      RT =  4, // tmp
-      RC =  5, // const
-      RA =  6, // args
-      R1 =  7, //
-      R2 =  8, //
-      R3 =  9, //
-      R4 = 10, //
-      R5 = 11, //
-      R6 = 12, //
-      R7 = 13, //
-      R8 = 14, //
-      R9 = 15, //
-    };
-
-    static inline std::map<std::string, uint8_t> registers = {
-      { "RI", RI },
-      { "RB", RB },
-      { "RS", RS },
-      { "RF", RF },
-      { "RT", RT },
-      { "RC", RC },
-      { "RA", RA },
-      { "R1", R1 },
-      { "R2", R2 },
-      { "R3", R3 },
-      { "R4", R4 },
-      { "R5", R5 },
-      { "R6", R6 },
-      { "R7", R7 },
-      { "R8", R8 },
-      { "R9", R9 },
-    };
-
 
     // xxxx xxxx xxxx xxxx
     //    0    d    v    v   SET(d,a):     Rd = (0 0 0 0 0 0 0 v)
@@ -313,51 +277,111 @@ namespace risc_n {
     // LABEL(name)         labels[name] = position
     // ADDRESS(Ra, name)   set(Ra, functions[name] ? functions[name] : labels[name])
 
-    uint8_t op1_index(const std::string& name) {
-      if (op1.find(name) == op1.end())
-        throw fatal_error("unknown op1");
-      return op1[name];
+    uint8_t opcode_index(uint8_t offset, const std::string& name) {
+      auto it = std::find_if(opcodes.begin(), opcodes.end(),
+          [offset, name](auto& opcode) { return opcode.offset == offset && opcode.name == name; });
+      if (it == opcodes.end()) {
+        throw fatal_error("unknown opcode");
+      }
+      return it->index;
     }
 
-    uint8_t op2_index(const std::string& name) {
-      if (op2.find(name) == op2.end())
-        throw fatal_error("unknown op2");
-      return op2[name];
+    std::string opcode_name(uint8_t offset, uint8_t index) {
+      auto it = std::find_if(opcodes.begin(), opcodes.end(),
+          [offset, index](auto& opcode) { return opcode.offset == offset && opcode.index == index; });
+      if (it == opcodes.end()) {
+        throw fatal_error("unknown opcode");
+      }
+      return it->name;
     }
 
-    uint8_t register_index(const std::string& name) {
-      if (registers.find(name) == registers.end())
-        throw fatal_error("unknown register");
-      return registers[name];
+    uint8_t reg_index(const std::string& name) {
+      auto it = std::find_if(regs.begin(), regs.end(),
+          [name](auto& reg) { return reg.name == name; });
+      if (it == regs.end()) {
+        throw fatal_error("unknown reg");
+      }
+      return it->index;
     }
 
-    std::string register_str(uint8_t reg) {
-      auto it = std::find_if(registers.begin(), registers.end(), [reg](auto& kv) { return kv.second == reg; });
-      if (it == registers.end())
-        throw fatal_error("unknown register");
-      return it->first;
+    std::string reg_name(uint8_t index) {
+      auto it = std::find_if(regs.begin(), regs.end(),
+          [index](auto& reg) { return reg.index == index; });
+      if (it == regs.end()) {
+        throw fatal_error("unknown reg");
+      }
+      return it->name;
+    }
+
+    std::string print_instruction(instruction_t instruction) {
+      std::stringstream ss;
+
+      ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(instruction.value))
+          << instruction.value << "   ";
+
+      if (instruction.cmd_set.op == opcode_index(0, "SET")) {
+        ss << opcode_name(0, instruction.cmd_set.op) << " "
+          << reg_name(instruction.cmd_set.rd) << " "
+          << (int64_t) instruction.cmd_set.val << " ";
+      } else {
+        if (instruction.cmd.op == opcode_index(0, "OTH0")) {
+          if (instruction.cmd.rd == opcode_index(1, "OTH1")) {
+            if (instruction.cmd.rs1 == opcode_index(2, "OTH2")) {
+                ss << opcode_name(3, instruction.cmd.rs2) << " ";
+            } else {
+              ss << opcode_name(2, instruction.cmd.rs1) << " "
+                << reg_name(instruction.cmd.rs2) << " ";
+            }
+          } else {
+            ss << opcode_name(1, instruction.cmd.rd) << " "
+              << reg_name(instruction.cmd.rs1) << " "
+              << reg_name(instruction.cmd.rs2) << " ";
+          }
+        } else {
+          ss << opcode_name(0, instruction.cmd.op) << " "
+            << reg_name(instruction.cmd.rd) << " "
+            << reg_name(instruction.cmd.rs1) << " "
+            << reg_name(instruction.cmd.rs2) << " ";
+        }
+      }
+
+      return ss.str();
+    };
+
+    static void macro_set(instructions_t& instructions, uint8_t rd, int64_t value) {
+      DEBUG_LOGGER_TRACE_RISC;
+      // DEBUG_LOGGER_RISC("rd: '%x'", rd);
+      // DEBUG_LOGGER_RISC("value: '%ld'", value);
+
+      uint8_t bytes[sizeof(uint64_t)];
+      memcpy(bytes, &value, sizeof(value));
+      std::reverse(std::begin(bytes), std::end(bytes));
+
+      size_t i = 0;
+      for (; i < sizeof(uint64_t); i++) {
+        if (bytes[i])
+          break;
+      }
+
+      instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rd, 0 } });
+
+      auto rt = reg_index("RT");
+
+      for (; i < sizeof(uint64_t); i++) {
+        instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rt, 8 } });
+        instructions.push_back({ .cmd     = { opcode_index(0, "LSH"), rd, rd, rt } });
+        instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rt, bytes[i] } });
+        instructions.push_back({ .cmd     = { opcode_index(0, "OR"),  rd, rd, rt } });
+      }
     }
 
     static void process(instructions_t& instructions, const cmds_str_t& cmds_str) {
       for (auto cmd_str : cmds_str) {
-        // { "AND",  3},
-        // { "OR",   3},
-        // { "XOR",  3},
-        // { "ADD",  3},
-        // { "SUB",  3},
-        // { "MULT", 3},
-        // { "DIV",  3},
-        // { "LSH",  3},
-        // { "RSH",  3},
-        // { "BR",   2},
-        // { "NOT",  2},
-        // { "LOAD", 2},
-        // { "SAVE", 2},
-        // { "MOV",  2},
-        // { "CALL", 1},
-        // { "RET",  0},
         if (cmd_str.at(0) == "SET") {
-          ;
+          auto op = opcode_index(0, cmd_str.at(0));
+          auto rd = reg_index(cmd_str.at(1));
+          int64_t value = strtol(cmd_str.at(2).c_str(), nullptr, 0);
+          macro_set(instructions, rd, value);
         } else if (cmd_str.at(0) == "FUNCTION") {
           ;
         } else if (cmd_str.at(0) == "LABEL") {
@@ -365,30 +389,36 @@ namespace risc_n {
         } else if (cmd_str.at(0) == "ADDRESS") {
           ;
         } else if (cmd_str.size() == 4) {
-          auto op  = op1_index(cmd_str.at(0));
-          auto rd  = register_index(cmd_str.at(1));
-          auto rs1 = register_index(cmd_str.at(2));
-          auto rs2 = register_index(cmd_str.at(3));
-          instruction_t cmd = { .cmd  = { op, rd, rs1, rs2 } };
-          instructions.push_back(cmd);
-          DEBUG_LOGGER_ICG("cmd: '%x'   %4s %2s %2s %2s", cmd.value,
-              cmd_str.at(0).c_str(), cmd_str.at(1).c_str(), cmd_str.at(2).c_str(), cmd_str.at(3).c_str());
+          auto op  = opcode_index(0, cmd_str.at(0));
+          auto rd  = reg_index(cmd_str.at(1));
+          auto rs1 = reg_index(cmd_str.at(2));
+          auto rs2 = reg_index(cmd_str.at(3));
+          instructions.push_back({ .cmd  = { op, rd, rs1, rs2 } });
         } else if (cmd_str.size() == 3) {
-          auto op = op2_index(cmd_str.at(0));
-          auto rd = register_index(cmd_str.at(1));
-          auto rs = register_index(cmd_str.at(2));
-          instruction_t cmd = { .cmd  = { OTH1, op, rd, rs } };
-          instructions.push_back(cmd);
-          DEBUG_LOGGER_ICG("cmd: '%x'   %4s %2s %2s", cmd.value,
-              cmd_str.at(0).c_str(), cmd_str.at(1).c_str(), cmd_str.at(2).c_str());
+          auto op1 = opcode_index(0, "OTH0");
+          auto op2 = opcode_index(1, cmd_str.at(0));
+          auto rd  = reg_index(cmd_str.at(1));
+          auto rs  = reg_index(cmd_str.at(2));
+          instructions.push_back({ .cmd  = { op1, op2, rd, rs } });
         } else if (cmd_str.size() == 2) {
-          ;
+          auto op1 = opcode_index(0, "OTH0");
+          auto op2 = opcode_index(1, "OTH1");
+          auto op3 = opcode_index(2, cmd_str.at(0));
+          auto rd  = reg_index(cmd_str.at(1));
+          instructions.push_back({ .cmd  = { op1, op2, op3, rd } });
         } else if (cmd_str.size() == 1) {
-          ;
+          auto op1 = opcode_index(0, "OTH0");
+          auto op2 = opcode_index(1, "OTH1");
+          auto op3 = opcode_index(2, "OTH2");
+          auto op4 = opcode_index(3, cmd_str.at(0));
+          instructions.push_back({ .cmd  = { op1, op2, op3, op4 } });
         } else {
           throw fatal_error("unknown cmd size");
         }
-        // DEBUG_LOGGER_ICG("cmd: '%d'", cmd_str.size());
+      }
+
+      for (auto instruction : instructions) {
+        DEBUG_LOGGER_ICG("instruction: '%s'", print_instruction(instruction).c_str());
       }
     }
 
