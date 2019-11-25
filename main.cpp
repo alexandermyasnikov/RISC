@@ -18,6 +18,12 @@
 #define DEBUG_LOGGER_TRACE_ICG           DEBUG_LOGGER("icg  ", logger_indent_risc_t::indent)
 #define DEBUG_LOGGER_ICG(...)            DEBUG_LOG("icg  ", logger_indent_risc_t::indent, __VA_ARGS__)
 
+#define DEBUG_LOGGER_TRACE_CG            DEBUG_LOGGER("cg   ", logger_indent_risc_t::indent)
+#define DEBUG_LOGGER_CG(...)             DEBUG_LOG("cg   ", logger_indent_risc_t::indent, __VA_ARGS__)
+
+#define DEBUG_LOGGER_TRACE_EXEC          DEBUG_LOGGER("exec ", logger_indent_risc_t::indent)
+#define DEBUG_LOGGER_EXEC(...)           DEBUG_LOG("exec ", logger_indent_risc_t::indent, __VA_ARGS__)
+
 template <typename T>
 struct logger_indent_t { static inline int indent = 0; };
 
@@ -160,7 +166,7 @@ namespace risc_n {
 
   namespace semantic_analyzer_n {
 
-  };
+  }
 
 
 
@@ -376,44 +382,64 @@ namespace risc_n {
     }
 
     static void process(instructions_t& instructions, const cmds_str_t& cmds_str) {
+      std::map<std::string, size_t> functions;
       for (auto cmd_str : cmds_str) {
-        if (cmd_str.at(0) == "SET") {
+        if (cmd_str.at(0) == "SET" && cmd_str.size() == 3) {
           auto op = opcode_index(0, cmd_str.at(0));
           auto rd = reg_index(cmd_str.at(1));
           int64_t value = strtol(cmd_str.at(2).c_str(), nullptr, 0);
           macro_set(instructions, rd, value);
-        } else if (cmd_str.at(0) == "FUNCTION") {
-          ;
+
+        } else if (cmd_str.at(0) == "FUNCTION" && cmd_str.size() == 2) {
+          auto name = cmd_str.at(1);
+
+          if (functions.find(name) != functions.end())
+            throw fatal_error("function exists");
+
+          functions[name] = instructions.size() * sizeof(instruction_t);
+
         } else if (cmd_str.at(0) == "LABEL") {
-          ;
-        } else if (cmd_str.at(0) == "ADDRESS") {
-          ;
+          throw fatal_error("LABEL TODO");
+
+        } else if (cmd_str.at(0) == "ADDRESS" && cmd_str.size() == 3) {
+          auto rd   = reg_index(cmd_str.at(1));
+          auto name = cmd_str.at(2);
+
+          if (functions.find(name) == functions.end())
+            throw fatal_error("function not exists");
+
+          macro_set(instructions, rd, functions[name]);
+
         } else if (cmd_str.size() == 4) {
           auto op  = opcode_index(0, cmd_str.at(0));
           auto rd  = reg_index(cmd_str.at(1));
           auto rs1 = reg_index(cmd_str.at(2));
           auto rs2 = reg_index(cmd_str.at(3));
           instructions.push_back({ .cmd  = { op, rd, rs1, rs2 } });
+
         } else if (cmd_str.size() == 3) {
           auto op1 = opcode_index(0, "OTH0");
           auto op2 = opcode_index(1, cmd_str.at(0));
           auto rd  = reg_index(cmd_str.at(1));
           auto rs  = reg_index(cmd_str.at(2));
           instructions.push_back({ .cmd  = { op1, op2, rd, rs } });
+
         } else if (cmd_str.size() == 2) {
           auto op1 = opcode_index(0, "OTH0");
           auto op2 = opcode_index(1, "OTH1");
           auto op3 = opcode_index(2, cmd_str.at(0));
           auto rd  = reg_index(cmd_str.at(1));
           instructions.push_back({ .cmd  = { op1, op2, op3, rd } });
+
         } else if (cmd_str.size() == 1) {
           auto op1 = opcode_index(0, "OTH0");
           auto op2 = opcode_index(1, "OTH1");
           auto op3 = opcode_index(2, "OTH2");
           auto op4 = opcode_index(3, cmd_str.at(0));
           instructions.push_back({ .cmd  = { op1, op2, op3, op4 } });
+
         } else {
-          throw fatal_error("unknown cmd size");
+          throw fatal_error("unknown cmd format");
         }
       }
 
@@ -421,73 +447,40 @@ namespace risc_n {
         DEBUG_LOGGER_ICG("instruction: '%s'", print_instruction(instruction).c_str());
       }
     }
-
-    /*
-    { // code genegation
-      size_t i = 0;
-      while (i < lexemes.size()) {
-        std::string lexeme = std::get<lexeme_ident_t>(lexemes.at(i++)).value;
-        DEBUG_LOGGER_RISC("lexeme: '%s'", lexeme.c_str());
-
-        if (lexeme == "FUNCTION") {
-          auto name = std::get<lexeme_ident_t>(lexemes.at(i++)).value;
-          if (functions.find(name) != functions.end())
-            throw fatal_error("function exists");
-          functions[name] = instructions.size() * sizeof(instruction_t);
-          DEBUG_LOGGER_RISC("function: '%zd', '%s'", functions[name], name.c_str());
-
-        } else if (lexeme == "MULT") {
-          auto rd  = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          auto rs1 = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          auto rs2 = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          instructions.push_back({ .cmd  = { MULT, rd, rs1, rs2 } });
-
-        } else if (lexeme == "ADD") {
-          auto rd  = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          auto rs1 = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          auto rs2 = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          instructions.push_back({ .cmd  = { ADD, rd, rs1, rs2 } });
-
-        } else if (lexeme == "RET") {
-          // TODO
-          // macro_set(instructions, register_index("RT"), 0xFFFFFFFF);
-
-        } else if (lexeme == "SET") {
-          auto arg1 = std::get<lexeme_ident_t>(lexemes.at(i++)).value;
-          auto arg2 = std::get<lexeme_integer_t>(lexemes.at(i++)).value;
-          macro_set(instructions, register_index(arg1), arg2);
-
-        } else if (lexeme == "CALL") {
-          auto rs = register_index(std::get<lexeme_ident_t>(lexemes.at(i++)).value);
-          instructions.push_back({ .cmd  = { OTH1, OTH2, CALL, rs } });
-
-        } else if (lexeme == "ADDRESS") {
-          auto arg1 = std::get<lexeme_ident_t>(lexemes.at(i++)).value;
-          auto arg2 = std::get<lexeme_ident_t>(lexemes.at(i++)).value;
-
-          if (functions.find(arg2) == functions.end())
-            throw fatal_error("function not exists");
-
-          macro_set(instructions, register_index(arg1), functions[arg2]);
-
-        } else {
-          DEBUG_LOGGER_RISC("WARN: unknown lexeme: '%s'", lexeme.c_str());
-          throw fatal_error("unknown lexeme");
-        }
-      }
-    }
-    */
-  };
+  }
 
 
 
   namespace code_optimizer_n {
-  };
+  }
 
 
 
   namespace code_generator_n {
-  };
+    using namespace intermediate_code_generator_n;
+
+    static void process(std::vector<uint8_t>& text, const instructions_t& instructions) {
+      text.assign(sizeof(instruction_t) * instructions.size(), 0);
+      for (size_t i = 0; i < instructions.size(); ++i) {
+        memcpy(text.data() + i * sizeof(instruction_t), &instructions[i].value, sizeof(instruction_t));
+      }
+
+      for (size_t i = 0; i < text.size(); i += sizeof(instruction_t)) {
+        DEBUG_LOGGER_CG("text: '%02hhx%02hhx'", text.at(i), text.at(i + 1));
+      }
+    }
+  }
+
+
+
+  namespace executor_n {
+
+    using registers_set_t = uint64_t[16];
+
+    static void process(std::vector<uint8_t>& text) {
+      DEBUG_LOGGER_TRACE_EXEC;
+    }
+  }
 }
 
 
@@ -496,69 +489,6 @@ struct interpreter_t {
   struct fatal_error : std::runtime_error {
     fatal_error(const std::string& msg = "unknown error") : std::runtime_error(msg) { }
   };
-
-  using registers_set_t = uint64_t[16];
-
-  /*std::string hex(const std::vector<instruction_t>& instructions) {
-    DEBUG_LOGGER_TRACE_RISC;
-    std::stringstream ss;
-    ss << "{ ";
-    for (size_t i = 0; i < instructions.size(); ++i) {
-      auto instruction = instructions[i];
-      if ((i % 8) == 0) {
-        ss << std::endl;
-        ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(i))
-          << i * sizeof(instruction.value) << "     ";
-      }
-      ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(instruction.value))
-        << instruction.value << " ";
-    }
-    ss << std::endl << "} " << std::dec << instructions.size() << "s";
-    return ss.str();
-  }
-
-  template <typename T>
-  std::string hex(const std::vector<T>& buffer) {
-    DEBUG_LOGGER_TRACE_RISC;
-    std::stringstream ss;
-    ss << "{ ";
-    for (size_t i = 0; i < buffer.size(); ++i) {
-      auto val = buffer[i];
-      if ((i % 8) == 0) {
-        ss << std::endl;
-        ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(i))
-          << i * sizeof(val) << "     ";
-      }
-      ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(val)) << (uint64_t) val << " ";
-    }
-    ss << std::endl << "} " << std::dec << buffer.size() << "s";
-    return ss.str();
-  }*/
-
-  /*void macro_set(std::vector<instruction_t>& instructions, uint8_t rd, int64_t value) {
-    DEBUG_LOGGER_TRACE_RISC;
-    // DEBUG_LOGGER_RISC("rd: '%x'", rd);
-    // DEBUG_LOGGER_RISC("value: '%ld'", value);
-
-    uint8_t bytes[sizeof(uint64_t)];
-    memcpy(bytes, &value, sizeof(value));
-    std::reverse(std::begin(bytes), std::end(bytes));
-
-    size_t i = 0;
-    for (; i < sizeof(uint64_t); i++) {
-      if (bytes[i])
-        break;
-    }
-
-    instructions.push_back({ .cmd_set = { SET, rd, 0 } });
-
-    for (; i < sizeof(uint64_t); i++) {
-      instructions.push_back({ .cmd_set = { SET, RT, 8 } });
-      instructions.push_back({ .cmd     = { LSH, rd, rd, RT } });
-      instructions.push_back({ .cmd_set = { SET, RT, bytes[i] } });
-      instructions.push_back({ .cmd     = { OR,  rd, rd, RT } });
-    }
-  }*/
 
   void exec(const std::string code) {
     DEBUG_LOGGER_TRACE_RISC;
@@ -574,6 +504,10 @@ struct interpreter_t {
     intermediate_code_generator_n::instructions_t instructions;
     intermediate_code_generator_n::process(instructions, cmds_str);
 
+    std::vector<uint8_t> text;
+    code_generator_n::process(text, instructions);
+
+    executor_n::process(text);
 
     // std::vector<instruction_t> instructions;
     // std::map<std::string, size_t> functions;
@@ -753,16 +687,16 @@ int main() {
     RET
 
     FUNCTION tmain
-      SET R1 72623859790382856
-      SET R2 2
-      SET R3 3
-      SET R4 4
-      SET R5 34
-      SET R6 14
-      SET R7 12
-      SET R8 10
-      MOV R9 R5
-      MULT R7 R1 R2
+      ; SET R1 72623859790382856
+      ; SET R2 2
+      ; SET R3 3
+      ; SET R4 4
+      ; SET R5 34
+      ; SET R6 14
+      ; SET R7 12
+      ; SET R8 10
+      ; MOV R9 R5
+      ; MULT R7 R1 R2
       ADDRESS RA main
       CALL RA
     RET
