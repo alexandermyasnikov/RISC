@@ -6,6 +6,8 @@ Description:
   Все данные в data  выровнены по u16.
   Все данные в stack выровнены по u64.
 
+TODO:
+  Добавить макросы как в assembler.
 
 
 Registers: u64

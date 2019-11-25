@@ -49,6 +49,8 @@ namespace risc_n {
 
   namespace utils_n {
 
+    using data_t = std::vector<uint8_t>;
+
     struct fatal_error : std::runtime_error {
       fatal_error(const std::string& msg = "unknown error") : std::runtime_error(msg) { }
     };
@@ -192,13 +194,13 @@ namespace risc_n {
 
     using instructions_t = std::vector<instruction_t>;
 
-    struct opcode_t {
+    struct opcode_index_t {
       uint8_t     offset;
       uint8_t     index;
       std::string name;
     };
 
-    static inline std::vector<opcode_t> opcodes = {
+    static inline std::vector<opcode_index_t> opcodes_table = {
       {  0,  0, "SET"  },
       {  0,  1, "AND"  },
       {  0,  2, "OR"   },
@@ -225,12 +227,12 @@ namespace risc_n {
       // ...
     };
 
-    struct reg_t {
+    struct reg_index_t {
       uint8_t     index;
       std::string name;
     };
 
-    static inline std::vector<reg_t> regs = {
+    static inline std::vector<reg_index_t> regs_table = {
       {  0,  "RI"  },   // instruction pointer
       {  1,  "RB"  },   // base pointer
       {  2,  "RS"  },   // stack pointer
@@ -248,6 +250,8 @@ namespace risc_n {
       {  14, "R8"  },
       {  15, "R9"  },
     };
+
+    using reg_value_t = int64_t;
 
     // xxxx xxxx xxxx xxxx
     //    0    d    v    v   SET(d,a):     Rd = (0 0 0 0 0 0 0 v)
@@ -283,37 +287,39 @@ namespace risc_n {
     // LABEL(name)         labels[name] = position
     // ADDRESS(Ra, name)   set(Ra, functions[name] ? functions[name] : labels[name])
 
+    using functions_t = std::map<std::string, size_t>;
+
     uint8_t opcode_index(uint8_t offset, const std::string& name) {
-      auto it = std::find_if(opcodes.begin(), opcodes.end(),
+      auto it = std::find_if(opcodes_table.begin(), opcodes_table.end(),
           [offset, name](auto& opcode) { return opcode.offset == offset && opcode.name == name; });
-      if (it == opcodes.end()) {
+      if (it == opcodes_table.end()) {
         throw fatal_error("unknown opcode");
       }
       return it->index;
     }
 
     std::string opcode_name(uint8_t offset, uint8_t index) {
-      auto it = std::find_if(opcodes.begin(), opcodes.end(),
+      auto it = std::find_if(opcodes_table.begin(), opcodes_table.end(),
           [offset, index](auto& opcode) { return opcode.offset == offset && opcode.index == index; });
-      if (it == opcodes.end()) {
+      if (it == opcodes_table.end()) {
         throw fatal_error("unknown opcode");
       }
       return it->name;
     }
 
     uint8_t reg_index(const std::string& name) {
-      auto it = std::find_if(regs.begin(), regs.end(),
+      auto it = std::find_if(regs_table.begin(), regs_table.end(),
           [name](auto& reg) { return reg.name == name; });
-      if (it == regs.end()) {
+      if (it == regs_table.end()) {
         throw fatal_error("unknown reg");
       }
       return it->index;
     }
 
     std::string reg_name(uint8_t index) {
-      auto it = std::find_if(regs.begin(), regs.end(),
+      auto it = std::find_if(regs_table.begin(), regs_table.end(),
           [index](auto& reg) { return reg.index == index; });
-      if (it == regs.end()) {
+      if (it == regs_table.end()) {
         throw fatal_error("unknown reg");
       }
       return it->name;
@@ -328,7 +334,7 @@ namespace risc_n {
       if (instruction.cmd_set.op == opcode_index(0, "SET")) {
         ss << opcode_name(0, instruction.cmd_set.op) << " "
           << reg_name(instruction.cmd_set.rd) << " "
-          << (int64_t) instruction.cmd_set.val << " ";
+          << (reg_value_t) instruction.cmd_set.val << " ";
       } else {
         if (instruction.cmd.op == opcode_index(0, "OTH0")) {
           if (instruction.cmd.rd == opcode_index(1, "OTH1")) {
@@ -354,17 +360,17 @@ namespace risc_n {
       return ss.str();
     };
 
-    static void macro_set(instructions_t& instructions, uint8_t rd, int64_t value) {
-      DEBUG_LOGGER_TRACE_RISC;
-      // DEBUG_LOGGER_RISC("rd: '%x'", rd);
-      // DEBUG_LOGGER_RISC("value: '%ld'", value);
+    static void macro_set(instructions_t& instructions, uint8_t rd, reg_value_t value) {
+      DEBUG_LOGGER_TRACE_ICG;
+      // DEBUG_LOGGER_ICG("rd: '%x'", rd);
+      // DEBUG_LOGGER_ICG("value: '%ld'", value);
 
-      uint8_t bytes[sizeof(uint64_t)];
+      uint8_t bytes[sizeof(std::make_unsigned<reg_value_t>::type)];
       memcpy(bytes, &value, sizeof(value));
       std::reverse(std::begin(bytes), std::end(bytes));
 
       size_t i = 0;
-      for (; i < sizeof(uint64_t); i++) {
+      for (; i < sizeof(bytes); i++) {
         if (bytes[i])
           break;
       }
@@ -373,7 +379,7 @@ namespace risc_n {
 
       auto rt = reg_index("RT");
 
-      for (; i < sizeof(uint64_t); i++) {
+      for (; i < sizeof(std::make_unsigned<reg_value_t>::type); i++) {
         instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rt, 8 } });
         instructions.push_back({ .cmd     = { opcode_index(0, "LSH"), rd, rd, rt } });
         instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rt, bytes[i] } });
@@ -381,13 +387,12 @@ namespace risc_n {
       }
     }
 
-    static void process(instructions_t& instructions, const cmds_str_t& cmds_str) {
-      std::map<std::string, size_t> functions;
+    static void process(instructions_t& instructions, functions_t& functions, const cmds_str_t& cmds_str) {
       for (auto cmd_str : cmds_str) {
         if (cmd_str.at(0) == "SET" && cmd_str.size() == 3) {
           auto op = opcode_index(0, cmd_str.at(0));
           auto rd = reg_index(cmd_str.at(1));
-          int64_t value = strtol(cmd_str.at(2).c_str(), nullptr, 0);
+          reg_value_t value = strtol(cmd_str.at(2).c_str(), nullptr, 0);
           macro_set(instructions, rd, value);
 
         } else if (cmd_str.at(0) == "FUNCTION" && cmd_str.size() == 2) {
@@ -443,8 +448,8 @@ namespace risc_n {
         }
       }
 
-      for (auto instruction : instructions) {
-        DEBUG_LOGGER_ICG("instruction: '%s'", print_instruction(instruction).c_str());
+      for (size_t i = 0; i < instructions.size(); ++i) {
+        DEBUG_LOGGER_ICG("instruction: %08x '%s'", i * sizeof(instruction_t), print_instruction(instructions[i]).c_str());
       }
     }
   }
@@ -459,7 +464,7 @@ namespace risc_n {
   namespace code_generator_n {
     using namespace intermediate_code_generator_n;
 
-    static void process(std::vector<uint8_t>& text, const instructions_t& instructions) {
+    static void process(data_t& text, const instructions_t& instructions) {
       text.assign(sizeof(instruction_t) * instructions.size(), 0);
       for (size_t i = 0; i < instructions.size(); ++i) {
         memcpy(text.data() + i * sizeof(instruction_t), &instructions[i].value, sizeof(instruction_t));
@@ -475,10 +480,68 @@ namespace risc_n {
 
   namespace executor_n {
 
-    using registers_set_t = uint64_t[16];
+    using namespace intermediate_code_generator_n;
 
-    static void process(std::vector<uint8_t>& text) {
+    using registers_set_t = reg_value_t[16];
+
+    static std::string print_stack(const data_t& stack, registers_set_t* registers_set) {
+      std::stringstream ss;
+      ss << std::endl;
+
+      for (uint8_t i = 0; i < 16; ++i) {
+        ss << reg_name(i) << "   " << std::hex << std::setfill('0') << std::setw(2 * sizeof(reg_value_t))
+          << (*registers_set)[i] << std::endl;
+      }
+
+      for (size_t i = (*registers_set)[reg_index("RB")]; i < (*registers_set)[reg_index("RS")]; ++i) {
+        ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(uint8_t))
+          << (uint64_t) stack.at(i) << std::endl;
+      }
+
+      return ss.str();
+    }
+
+    static void process(const data_t& text, const functions_t& functions) {
       DEBUG_LOGGER_TRACE_EXEC;
+
+      if (functions.find("__start") == functions.end())
+        throw fatal_error("__start not exists");
+
+      data_t stack(0xFF, 0);
+      registers_set_t* registers_set = reinterpret_cast<registers_set_t*>(stack.data());
+      (*registers_set)[reg_index("RI")] = functions.at("__start");
+      (*registers_set)[reg_index("RB")] = sizeof(registers_set_t);
+      (*registers_set)[reg_index("RS")] = (*registers_set)[reg_index("RS")] + sizeof(registers_set_t);
+
+      DEBUG_LOGGER_RISC("stack: '%s'", print_stack(stack, registers_set).c_str());
+
+      /*
+      for (size_t i = 0; i < 1000; ++i) {
+        instruction_t* instruction = reinterpret_cast<instruction_t*>(((uint8_t*) instructions.data()) + (*registers_set)[RI]);
+        // DEBUG_LOGGER_RISC("cmd: '%d'", instruction->cmd.op);
+        // DEBUG_LOGGER_RISC("RI: x'%x'", (*registers_set)[RI]);
+        // DEBUG_LOGGER_RISC("RB: x'%x'", (*registers_set)[RB]);
+        // DEBUG_LOGGER_RISC("RS: x'%x'", (*registers_set)[RS]);
+        // DEBUG_LOGGER_RISC("val: x'%x'", instruction->value);
+        switch (instruction->cmd.op) {
+          case SET: {
+            DEBUG_LOGGER_RISC("  SET %s %x", register_str(instruction->cmd_set.rd).c_str(), instruction->cmd_set.val);
+            (*registers_set)[instruction->cmd_set.rd] = instruction->cmd_set.val;
+            break;
+          }
+          case ADD: {
+            DEBUG_LOGGER_RISC("  ADD %s %s %s",
+                register_str(instruction->cmd.rd).c_str(),
+                register_str(instruction->cmd.rs1).c_str(),
+                register_str(instruction->cmd.rs2).c_str());
+            (*registers_set)[instruction->cmd.rd] =
+              (*registers_set)[instruction->cmd.rs1] & (*registers_set)[instruction->cmd.rs2];
+            break;
+          }
+        }
+      }
+      */
+
     }
   }
 }
@@ -502,166 +565,14 @@ struct interpreter_t {
     syntax_analyzer_n::process(cmds_str, lexemes);
 
     intermediate_code_generator_n::instructions_t instructions;
-    intermediate_code_generator_n::process(instructions, cmds_str);
+    intermediate_code_generator_n::functions_t functions;
+    intermediate_code_generator_n::process(instructions, functions, cmds_str);
 
-    std::vector<uint8_t> text;
+    utils_n::data_t text;
     code_generator_n::process(text, instructions);
 
-    executor_n::process(text);
-
-    // std::vector<instruction_t> instructions;
-    // std::map<std::string, size_t> functions;
-
-    // DEBUG_LOGGER_RISC("instructions: '%s'", hex(instructions).c_str());
-
-    /*
-    { // code execution
-      if (functions.find("tmain") == functions.end())
-        throw fatal_error("tmain not exists");
-
-      std::vector<uint8_t> stack(0xFF, 0);
-      registers_set_t* registers_set = reinterpret_cast<registers_set_t*>(stack.data());
-      (*registers_set)[RI] = functions["tmain"];
-      (*registers_set)[RB] = sizeof(registers_set_t);
-      (*registers_set)[RS] = (*registers_set)[RB] + 0;
-
-
-      DEBUG_LOGGER_RISC("stack: '%s'", hex(stack).c_str());
-      for (size_t i = 0; i < 1000; ++i) {
-        instruction_t* instruction = reinterpret_cast<instruction_t*>(((uint8_t*) instructions.data()) + (*registers_set)[RI]);
-        // DEBUG_LOGGER_RISC("cmd: '%d'", instruction->cmd.op);
-        // DEBUG_LOGGER_RISC("RI: x'%x'", (*registers_set)[RI]);
-        // DEBUG_LOGGER_RISC("RB: x'%x'", (*registers_set)[RB]);
-        // DEBUG_LOGGER_RISC("RS: x'%x'", (*registers_set)[RS]);
-        // DEBUG_LOGGER_RISC("val: x'%x'", instruction->value);
-        switch (instruction->cmd.op) {
-          case SET: {
-            DEBUG_LOGGER_RISC("  SET %s %x", register_str(instruction->cmd_set.rd).c_str(), instruction->cmd_set.val);
-            (*registers_set)[instruction->cmd_set.rd] = instruction->cmd_set.val;
-            break;
-          }
-          case ADD: {
-            DEBUG_LOGGER_RISC("  ADD %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] & (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case OR: {
-            DEBUG_LOGGER_RISC("  OR %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] | (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case XOR: {
-            DEBUG_LOGGER_RISC("  XOR %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] ^ (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case AND: {
-            DEBUG_LOGGER_RISC("  AND %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] + (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case SUB: {
-            DEBUG_LOGGER_RISC("  SUB %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] - (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case MULT: {
-            DEBUG_LOGGER_RISC("  MULT %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] * (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case DIV: {
-            DEBUG_LOGGER_RISC("  DIV %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] / (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case LSH: {
-            DEBUG_LOGGER_RISC("  LSH %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] << (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case RSH: {
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] >> (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-          case OTH1: {
-            switch (instruction->cmd.rd) {
-              case OTH2: {
-                switch (instruction->cmd.rs1) {
-                  case CALL: {
-                    DEBUG_LOGGER_RISC("  CALL %s",
-                        register_str(instruction->cmd.rs2).c_str());
-                    DEBUG_LOGGER_RISC("stack: '%s'", hex(stack).c_str());
-          case CALL: {
-            DEBUG_LOGGER_RISC("stack: '%s'", hex(stack).c_str());
-            // registers_set_t* registers_set_new = reinterpret_cast<registers_set_t*>((*registers_set)[RS] + stack.data());
-            // instruction_t instruction = instructions.at((*registers_set)[RS]);
-            // registers_set_new[RI] = ...;
-            // (*registers_set_new)[RB] = (*registers_set)[RS] + sizeof(registers_set_t);
-            // (*registers_set_new)[RS] = (*registers_set_new)[RB];
-            // registers_set = registers_set_new;
-            break;
-          }
-                    break;
-                  }
-                  case OTH3: {
-                    switch (instruction->cmd.rs2) {
-                      default: throw fatal_error("unknown cmd4");
-                    }
-                    break;
-                  }
-                  default: throw fatal_error("unknown cmd3");
-                }
-                break;
-              }
-              default: throw fatal_error("unknown cmd2");
-            }
-            break;
-          }
-          default: throw fatal_error("unknown cmd");
-        }
-
-        (*registers_set)[RI] += sizeof(instruction_t);
-      }
-
-      DEBUG_LOGGER_RISC("stack: '%s'", hex(stack).c_str());
-    }
-  */
+    executor_n::process(text, functions);
   }
-
 };
 
 int main() {
@@ -686,7 +597,7 @@ int main() {
       ADD R2 R1 R1
     RET
 
-    FUNCTION tmain
+    FUNCTION __start
       ; SET R1 72623859790382856
       ; SET R2 2
       ; SET R3 3
