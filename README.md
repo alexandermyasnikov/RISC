@@ -89,9 +89,11 @@ xxxx xxxx xxxx xxxx
 
 Макросы:
 
+```
 FUNCTION(name)      Сохраняет адрес функции
 LABEL(name)         Сохраняет адрес метки
 ADDRESS(Ra, name)   Копирует адрес функции (метки) в регистр Ra
+```
 
 
 
