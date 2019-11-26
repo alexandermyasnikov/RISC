@@ -77,7 +77,7 @@ namespace risc_n {
         std::regex("\\s+|;.*?\n"),
         [](const std::string&) { return ""; }
       }, {
-        std::regex("[\\w\\d_\\.]+"),
+        std::regex("[\\w\\d_\\.-]+"),
         [](const std::string& str) { return str; }
       }
     };
@@ -233,25 +233,26 @@ namespace risc_n {
     };
 
     static inline std::vector<reg_index_t> regs_table = {
-      {  0,  "RI"  },   // instruction pointer
-      {  1,  "RB"  },   // base pointer
-      {  2,  "RS"  },   // stack pointer
-      {  3,  "RF"  },   // flags
-      {  4,  "RT"  },   // tmp
-      {  5,  "RC"  },   // const
-      {  6,  "RA"  },   // args
-      {  7,  "R1"  },
-      {  8,  "R2"  },
-      {  9,  "R3"  },
-      {  10, "R4"  },
-      {  11, "R5"  },
-      {  12, "R6"  },
-      {  13, "R7"  },
-      {  14, "R8"  },
-      {  15, "R9"  },
+      {   0, "RI"  },   // instruction pointer
+      {   1, "RP"  },   // previous base pointer
+      {   2, "RB"  },   // base pointer
+      {   3, "RS"  },   // stack pointer
+      {   4, "RF"  },   // flags
+      {   5, "RT"  },   // tmp
+      {   6, "RC"  },   // const
+      {   7, "RA"  },   // args
+      {   8, "R1"  },
+      {   9, "R2"  },
+      {  10, "R3"  },
+      {  11, "R4"  },
+      {  12, "R5"  },
+      {  13, "R6"  },
+      {  14, "R7"  },
+      {  15, "R8"  },
     };
 
     using reg_value_t = int64_t;
+    using reg_uvalue_t = std::make_unsigned<reg_value_t>::type;
 
     // xxxx xxxx xxxx xxxx
     //    0    d    v    v   SET(d,a):     Rd = (0 0 0 0 0 0 0 v)
@@ -365,7 +366,7 @@ namespace risc_n {
       // DEBUG_LOGGER_ICG("rd: '%x'", rd);
       // DEBUG_LOGGER_ICG("value: '%ld'", value);
 
-      uint8_t bytes[sizeof(std::make_unsigned<reg_value_t>::type)];
+      uint8_t bytes[sizeof(value)];
       memcpy(bytes, &value, sizeof(value));
       std::reverse(std::begin(bytes), std::end(bytes));
 
@@ -379,7 +380,7 @@ namespace risc_n {
 
       auto rt = reg_index("RT");
 
-      for (; i < sizeof(std::make_unsigned<reg_value_t>::type); i++) {
+      for (; i < sizeof(bytes); i++) {
         instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rt, 8 } });
         instructions.push_back({ .cmd     = { opcode_index(0, "LSH"), rd, rd, rt } });
         instructions.push_back({ .cmd_set = { opcode_index(0, "SET"), rt, bytes[i] } });
@@ -493,12 +494,97 @@ namespace risc_n {
           << (*registers_set)[i] << std::endl;
       }
 
+      ss << "size: " << (reinterpret_cast<const uint8_t*>(registers_set) - reinterpret_cast<const uint8_t*>(stack.data())) << std::endl;
+
       for (size_t i = (*registers_set)[reg_index("RB")]; i < (*registers_set)[reg_index("RS")]; ++i) {
-        ss << std::hex << std::setfill('0') << std::setw(2 * sizeof(uint8_t))
+        ss << "stack data: " << std::hex << std::setfill('0') << std::setw(2 * sizeof(uint8_t))
           << (uint64_t) stack.at(i) << std::endl;
       }
 
       return ss.str();
+    }
+
+    static void exec_cmd3(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+      if (instruction.cmd.rs2 == opcode_index(3, "RET")) {
+        if (!(*registers_set)[reg_index("RP")])
+          throw fatal_error("exit TODO");
+        registers_set_t* registers_set_new = reinterpret_cast<registers_set_t*>(stack.data()
+            + (*registers_set)[reg_index("RP")] - sizeof(registers_set_t));
+        registers_set = registers_set_new;
+      } else {
+        throw fatal_error("unknown cmd3");
+      }
+    }
+
+    static void exec_cmd2(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+      if (instruction.cmd.rs1 == opcode_index(2, "CALL")) {
+        registers_set_t* registers_set_new = reinterpret_cast<registers_set_t*>(stack.data()
+            + (*registers_set)[reg_index("RS")]);
+        (*registers_set_new)[reg_index("RI")] = (*registers_set)[instruction.cmd.rs2];
+        (*registers_set_new)[reg_index("RP")] = (*registers_set)[reg_index("RB")];
+        (*registers_set_new)[reg_index("RB")] = (*registers_set)[reg_index("RS")] + sizeof(registers_set_t);
+        (*registers_set_new)[reg_index("RS")] = (*registers_set_new)[reg_index("RB")];
+        registers_set = registers_set_new;
+      } else if (instruction.cmd.rs1 == opcode_index(2, "OTH2")) {
+        exec_cmd3(text, stack, registers_set, instruction);
+      } else {
+        throw fatal_error("unknown cmd2");
+      }
+    }
+
+    static void exec_cmd1(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+      if (instruction.cmd.rd == opcode_index(1, "BR")) {
+        throw fatal_error("BR TODO");
+      } else if (instruction.cmd.rd == opcode_index(1, "NOT")) {
+        (*registers_set)[instruction.cmd.rs1] = ~(*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.rd == opcode_index(1, "LOAD")) {
+        throw fatal_error("LOAD TODO");
+      } else if (instruction.cmd.rd == opcode_index(1, "SAVE")) {
+        throw fatal_error("SAVE TODO");
+      } else if (instruction.cmd.rd == opcode_index(1, "MOV")) {
+        (*registers_set)[instruction.cmd.rs1] = (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.rd == opcode_index(1, "OTH1")) {
+        exec_cmd2(text, stack, registers_set, instruction);
+      } else {
+        throw fatal_error("unknown cmd1");
+      }
+    }
+
+    static void exec_cmd0(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+      if (instruction.cmd.op == opcode_index(0, "SET")) {
+        (*registers_set)[instruction.cmd_set.rd] = instruction.cmd_set.val;
+      } else if (instruction.cmd.op == opcode_index(0, "AND")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] & (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "OR")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] | (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "XOR")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] ^ (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "AND")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] + (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "SUB")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] - (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "MULT")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] * (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "DIV")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] / (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "LSH")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] << (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "RSH")) {
+        (*registers_set)[instruction.cmd.rd] =
+          (*registers_set)[instruction.cmd.rs1] >> (*registers_set)[instruction.cmd.rs2];
+      } else if (instruction.cmd.op == opcode_index(0, "OTH0")) {
+        exec_cmd1(text, stack, registers_set, instruction);
+      } else {
+        throw fatal_error("unknown cmd0");
+      }
     }
 
     static void process(const data_t& text, const functions_t& functions) {
@@ -507,40 +593,26 @@ namespace risc_n {
       if (functions.find("__start") == functions.end())
         throw fatal_error("__start not exists");
 
-      data_t stack(0xFF, 0);
+      data_t stack(0xFFFF, 0);
+
       registers_set_t* registers_set = reinterpret_cast<registers_set_t*>(stack.data());
+      (*registers_set)[reg_index("RP")] = 0;
       (*registers_set)[reg_index("RI")] = functions.at("__start");
-      (*registers_set)[reg_index("RB")] = sizeof(registers_set_t);
-      (*registers_set)[reg_index("RS")] = (*registers_set)[reg_index("RS")] + sizeof(registers_set_t);
+      (*registers_set)[reg_index("RB")] = /*(*registers_set)[reg_index("RS")] +*/ sizeof(registers_set_t);
+      (*registers_set)[reg_index("RS")] = (*registers_set)[reg_index("RB")];
 
-      DEBUG_LOGGER_RISC("stack: '%s'", print_stack(stack, registers_set).c_str());
+      DEBUG_LOGGER_EXEC("stack frame: '%s'", print_stack(stack, registers_set).c_str());
 
-      /*
-      for (size_t i = 0; i < 1000; ++i) {
-        instruction_t* instruction = reinterpret_cast<instruction_t*>(((uint8_t*) instructions.data()) + (*registers_set)[RI]);
-        // DEBUG_LOGGER_RISC("cmd: '%d'", instruction->cmd.op);
-        // DEBUG_LOGGER_RISC("RI: x'%x'", (*registers_set)[RI]);
-        // DEBUG_LOGGER_RISC("RB: x'%x'", (*registers_set)[RB]);
-        // DEBUG_LOGGER_RISC("RS: x'%x'", (*registers_set)[RS]);
-        // DEBUG_LOGGER_RISC("val: x'%x'", instruction->value);
-        switch (instruction->cmd.op) {
-          case SET: {
-            DEBUG_LOGGER_RISC("  SET %s %x", register_str(instruction->cmd_set.rd).c_str(), instruction->cmd_set.val);
-            (*registers_set)[instruction->cmd_set.rd] = instruction->cmd_set.val;
-            break;
-          }
-          case ADD: {
-            DEBUG_LOGGER_RISC("  ADD %s %s %s",
-                register_str(instruction->cmd.rd).c_str(),
-                register_str(instruction->cmd.rs1).c_str(),
-                register_str(instruction->cmd.rs2).c_str());
-            (*registers_set)[instruction->cmd.rd] =
-              (*registers_set)[instruction->cmd.rs1] & (*registers_set)[instruction->cmd.rs2];
-            break;
-          }
-        }
+      for (size_t i = 0; i < 100000; ++i) {
+        instruction_t instruction = *reinterpret_cast<const instruction_t*>(text.data() + (*registers_set)[reg_index("RI")]);
+        DEBUG_LOGGER_EXEC("instruction: '%s'", print_instruction(instruction).c_str());
+
+        exec_cmd0(text, stack, registers_set, instruction);
+
+        DEBUG_LOGGER_EXEC("stack frame: '%s'", print_stack(stack, registers_set).c_str());
+
+        (*registers_set)[reg_index("RI")] += sizeof(instruction_t);
       }
-      */
 
     }
   }
@@ -554,8 +626,6 @@ struct interpreter_t {
   };
 
   void exec(const std::string code) {
-    DEBUG_LOGGER_TRACE_RISC;
-
     using namespace risc_n;
 
     lexical_analyzer_n::lexemes_t lexemes;
@@ -583,31 +653,31 @@ int main() {
     RET
 
     FUNCTION square
-      MULT R1 R1 R2
+      XOR R2 R3 R4
     RET
 
     FUNCTION main
       SET R1 72623859790382856
-      SET R5 0
-      ; SET R6 -1
-      SET R7 0
+      MOV R2 R1
+      MOV R3 R1
+      MOV R4 R1
       ADDRESS RA square
       CALL RA
       SET R1 10
-      ADD R2 R1 R1
+      MULT R2 R1 R1
     RET
 
     FUNCTION __start
-      ; SET R1 72623859790382856
-      ; SET R2 2
-      ; SET R3 3
-      ; SET R4 4
-      ; SET R5 34
-      ; SET R6 14
-      ; SET R7 12
-      ; SET R8 10
-      ; MOV R9 R5
-      ; MULT R7 R1 R2
+      SET R1 72623859790382856
+      SET R2 2
+      SET R3 3
+      SET R4 16
+      SET R5 34
+      SET R6 14
+      SET R7 12
+      SET R8 10
+      MOV R8 R1
+      DIV R2 R1 R4
       ADDRESS RA main
       CALL RA
     RET
