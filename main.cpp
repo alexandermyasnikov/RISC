@@ -6,9 +6,6 @@
 
 #include "debug_logger.h"
 
-#define DEBUG_LOGGER_TRACE_RISC          DEBUG_LOGGER("risc ", logger_indent_risc_t::indent)
-#define DEBUG_LOGGER_RISC(...)           DEBUG_LOG("risc ", logger_indent_risc_t::indent, __VA_ARGS__)
-
 #define DEBUG_LOGGER_TRACE_LA            DEBUG_LOGGER("la   ", logger_indent_risc_t::indent)
 #define DEBUG_LOGGER_LA(...)             DEBUG_LOG("la   ", logger_indent_risc_t::indent, __VA_ARGS__)
 
@@ -82,7 +79,7 @@ namespace risc_n {
       }
     };
 
-    static void process(lexemes_t& lexemes, const std::string& code) {
+    void process(lexemes_t& lexemes, const std::string& code) {
       DEBUG_LOGGER_TRACE_LA;
 
       std::string s = code;
@@ -145,7 +142,7 @@ namespace risc_n {
 
     using cmds_str_t = std::vector<std::vector<std::string>>;
 
-    static void process(cmds_str_t& cmds_str, const lexemes_t& lexemes) {
+    void process(cmds_str_t& cmds_str, const lexemes_t& lexemes) {
       size_t i = 0;
       while (i < lexemes.size()) {
         auto lexeme = lexemes.at(i++);
@@ -254,25 +251,6 @@ namespace risc_n {
     using reg_value_t = int64_t;
     using reg_uvalue_t = std::make_unsigned<reg_value_t>::type;
 
-    // xxxx xxxx xxxx xxxx
-    //    0    d    v    v   SET(d,a):     Rd = (0 0 0 0 0 0 0 v)
-    //    1    d    a    b   OR (d,a,b):   Rd = Ra | Rb
-    //    2    d    a    b   AND(d,a,b):   Rd = Ra & Rb
-    //    3    d    a    b   XOR(d,a,b):   Rd = Ra ^ Rb
-    //    4    d    a    b   ADD(d,a,b):   Rd = Ra + Rb   + c
-    //    5    d    a    b   SUB(d,a,b):   Rd = Ra - Rb   - c
-    //    6    d    a    b   MULT(d,a,b):  (Rt, Rd) = Ra * Rb
-    //    7    d    a    b   DIV(d,a,b):   Rd = Ra / Rb; Rt = Ra % Rb
-    //    8    d    a    b   LSH(d,a):     Rd = Ra << Rb
-    //    9    d    a    b   RSH(d,a):     Rd = Ra >> Rb
-    //   15    0    d    a   BR(d,a):      RIP = Rd if Ra
-    //   15    1    d    a   NOT(d,a):     Rd = ~Ra
-    //   15    2    d    a   LOAD(d,a):    Rd = M[Ra]              // TODO width
-    //   15    3    d    a   SAVE(d,a):    M[Ra] = Rd              // TODO width
-    //   15    4    d    a   MOV(d,a):     Rd = Ra
-    //   15   15    0    a   CALL(a):      ...
-    //   15   15   15    0   RET():        ...
-    //
     // INC1     Ra:      set(Rt, 1); INC(Ra, Rt);
     // DEC1     Ra:      set(Rt, 1); DEC(Ra, Rt);
     // SETF     Ra:      or(Rf, Rf, Ra);
@@ -283,10 +261,6 @@ namespace risc_n {
     // PSAVE    Ra Rb:   add(Rt, Rb, SP); save(Rt, Ra);
     // INC      Ra Rb:   add(Ra, Ra, Rb);
     // DEC      Ra Rb:   sub(Ra, Ra, Rb);
-    //
-    // FUNCTION(name)      functions[name] = position
-    // LABEL(name)         labels[name] = position
-    // ADDRESS(Ra, name)   set(Ra, functions[name] ? functions[name] : labels[name])
 
     using functions_t = std::map<std::string, size_t>;
 
@@ -361,7 +335,7 @@ namespace risc_n {
       return ss.str();
     };
 
-    static void macro_set(instructions_t& instructions, uint8_t rd, reg_value_t value) {
+    void macro_set(instructions_t& instructions, uint8_t rd, reg_value_t value) {
       DEBUG_LOGGER_TRACE_ICG;
       // DEBUG_LOGGER_ICG("rd: '%x'", rd);
       // DEBUG_LOGGER_ICG("value: '%ld'", value);
@@ -388,7 +362,7 @@ namespace risc_n {
       }
     }
 
-    static void process(instructions_t& instructions, functions_t& functions, const cmds_str_t& cmds_str) {
+    void process(instructions_t& instructions, functions_t& functions, const cmds_str_t& cmds_str) {
       for (auto cmd_str : cmds_str) {
         if (cmd_str.at(0) == "SET" && cmd_str.size() == 3) {
           auto op = opcode_index(0, cmd_str.at(0));
@@ -465,7 +439,7 @@ namespace risc_n {
   namespace code_generator_n {
     using namespace intermediate_code_generator_n;
 
-    static void process(data_t& text, const instructions_t& instructions) {
+    void process(data_t& text, const instructions_t& instructions) {
       text.assign(sizeof(instruction_t) * instructions.size(), 0);
       for (size_t i = 0; i < instructions.size(); ++i) {
         memcpy(text.data() + i * sizeof(instruction_t), &instructions[i].value, sizeof(instruction_t));
@@ -485,7 +459,7 @@ namespace risc_n {
 
     using registers_set_t = reg_value_t[16];
 
-    static std::string print_stack(const data_t& stack, registers_set_t* registers_set) {
+    std::string print_stack(const data_t& stack, registers_set_t* registers_set) {
       std::stringstream ss;
       ss << std::endl;
 
@@ -504,7 +478,7 @@ namespace risc_n {
       return ss.str();
     }
 
-    static void exec_cmd3(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+    void exec_cmd3(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
       if (instruction.cmd.rs2 == opcode_index(3, "RET")) {
         if (!(*registers_set)[reg_index("RP")])
           throw fatal_error("exit TODO");
@@ -516,7 +490,7 @@ namespace risc_n {
       }
     }
 
-    static void exec_cmd2(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+    void exec_cmd2(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
       if (instruction.cmd.rs1 == opcode_index(2, "CALL")) {
         registers_set_t* registers_set_new = reinterpret_cast<registers_set_t*>(stack.data()
             + (*registers_set)[reg_index("RS")]);
@@ -532,7 +506,7 @@ namespace risc_n {
       }
     }
 
-    static void exec_cmd1(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+    void exec_cmd1(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
       if (instruction.cmd.rd == opcode_index(1, "BR")) {
         throw fatal_error("BR TODO");
       } else if (instruction.cmd.rd == opcode_index(1, "NOT")) {
@@ -550,7 +524,7 @@ namespace risc_n {
       }
     }
 
-    static void exec_cmd0(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
+    void exec_cmd0(const data_t& text, data_t& stack, registers_set_t*& registers_set, instruction_t instruction) {
       if (instruction.cmd.op == opcode_index(0, "SET")) {
         (*registers_set)[instruction.cmd_set.rd] = instruction.cmd_set.val;
       } else if (instruction.cmd.op == opcode_index(0, "AND")) {
@@ -587,7 +561,7 @@ namespace risc_n {
       }
     }
 
-    static void process(const data_t& text, const functions_t& functions) {
+    void process(const data_t& text, const functions_t& functions) {
       DEBUG_LOGGER_TRACE_EXEC;
 
       if (functions.find("__start") == functions.end())
@@ -598,17 +572,16 @@ namespace risc_n {
       registers_set_t* registers_set = reinterpret_cast<registers_set_t*>(stack.data());
       (*registers_set)[reg_index("RP")] = 0;
       (*registers_set)[reg_index("RI")] = functions.at("__start");
-      (*registers_set)[reg_index("RB")] = /*(*registers_set)[reg_index("RS")] +*/ sizeof(registers_set_t);
+      (*registers_set)[reg_index("RB")] = sizeof(registers_set_t);
       (*registers_set)[reg_index("RS")] = (*registers_set)[reg_index("RB")];
 
       DEBUG_LOGGER_EXEC("stack frame: '%s'", print_stack(stack, registers_set).c_str());
 
-      for (size_t i = 0; i < 100000; ++i) {
+      while (true) {
         instruction_t instruction = *reinterpret_cast<const instruction_t*>(text.data() + (*registers_set)[reg_index("RI")]);
-        DEBUG_LOGGER_EXEC("instruction: '%s'", print_instruction(instruction).c_str());
-
         exec_cmd0(text, stack, registers_set, instruction);
 
+        DEBUG_LOGGER_EXEC("instruction: '%s'", print_instruction(instruction).c_str());
         DEBUG_LOGGER_EXEC("stack frame: '%s'", print_stack(stack, registers_set).c_str());
 
         (*registers_set)[reg_index("RI")] += sizeof(instruction_t);
