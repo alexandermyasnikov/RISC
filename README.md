@@ -4,6 +4,8 @@ Author: Alexander Myasnikov
 
 mailto:myasnikov.alexander.s@gmail.com
 
+git:https://gitlab.com/amyasnikov/risc
+
 Version: 0.1
 
 
